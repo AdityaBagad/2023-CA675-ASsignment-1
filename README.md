@@ -1,4 +1,4 @@
-# 2023-CA675-ASsignment-1
+# 2023-CA675-Assignment-1
 This repository consists of Dataset and Code Materials Related to CA675 (Cloud Technologies) Assignment-1. The Assignment was done using Google Cloud Platform (GCP)
 
 # Dataset
