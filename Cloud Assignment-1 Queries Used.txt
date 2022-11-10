@@ -1,0 +1,78 @@
+### Move File from Local Machine to HDFS
+hdfs dfs -put yt_comments_dataset.csv /assignment1/
+
+### List all Files in the folder
+hdfs dfs -ls /assignment1/
+
+### Start Pig
+pig -x mapreduce
+
+### Load CSV Data from Google Storage
+comments_data = LOAD 'gs://dataproc-staging-us-east1-1019160201255-embclvt4/notebooks/jupyter/dataset/yt_comments_dataset.csv' USING org.apache.pig.piggybank.storage.CSVExcelStorage(',', 'YES_MULTILINE', 'UNIX', 'SKIP_INPUT_HEADER') AS (video_id: chararray, comment_text: chararray);
+
+### Take a small subset of data
+yt_test = LIMIT comments_data 5;
+dump yt_test;
+
+### Remove URL (NOT PERFORMED)***
+clean_yt_comments = FOREACH comments_data GENERATE video_id, LOWER(REPLACE(comment_text,'https?:.*(?=\s)',' ')) AS (clean_comment_text: chararray);
+
+### Clean Youtube Comments
+clean_yt_comments = FOREACH comments_data GENERATE video_id, LOWER(REPLACE(REPLACE(REPLACE(comment_text,'\\s+',' '),'([^a-zA-Z0-9\\s]+)',''),'\\s+',' ')) as (clean_comment_text:chararray);
+
+yt_test = LIMIT clean_yt_comments 5;
+dump yt_test;
+
+### Remove NULL Values
+clean_yt_comments_final = FILTER clean_yt_comments BY (clean_comment_text IS NOT NULL);
+
+yt_test = LIMIT clean_yt_comments_final 5;
+dump yt_test;
+
+### Store Data in Google Cloud Storage
+# STORE clean_yt_comments_final INTO 'gs://dataproc-staging-us-east1-1019160201255-embclvt4/notebooks/jupyter/dataset/clean_yt_comments_final' USING org.apache.pig.piggybank.storage.CSVExcelStorage(',', 'YES_MULTILINE', 'UNIX', 'SKIP_INPUT_HEADER');
+STORE clean_yt_comments_final INTO 'gs://dataproc-staging-us-east1-1019160201255-embclvt4/notebooks/jupyter/dataset/clean_yt_dataset' USING org.apache.pig.piggybank.storage.CSVExcelStorage(',', 'YES_MULTILINE', 'UNIX', 'SKIP_INPUT_HEADER');
+
+
+### STORE clean_yt_comments_final INTO 'hdfs://cluster-b2a2-m/assignment1/clean_yt_comments_final' using org.apache.pig.piggybank.storage.CSVExcelStorage(',', 'YES_MULTILINE', 'UNIX', 'SKIP_INPUT_HEADER');
+STORE clean_yt_comments_final INTO 'hdfs://cluster-b2a2-m/assignment1/clean_yt_dataset' using org.apache.pig.piggybank.storage.CSVExcelStorage(',', 'YES_MULTILINE', 'UNIX', 'SKIP_INPUT_HEADER');
+
+
+########################
+	HIVE 
+########################
+### CREATE database;
+CREATE youtube_comments_data;
+
+### Select the newly created database
+USE youtube_comments_data;
+
+### Create Tables to Store Cleaned Data
+CREATE EXTERNAL TABLE IF NOT EXISTS yt_pigdata (video_id string, comment_text string) ROW FORMAT DELIMITED FIELDS TERMINATED BY ',';
+
+### Create Tables Spam Words Data
+CREATE EXTERNAL TABLE IF NOT EXISTS spam_words_dataset (spam_words string) ROW FORMAT DELIMITED FIELDS TERMINATED BY ',';
+
+### Show all tables in the selected Databases
+SHOW TABLES;
+
+### Load Spam Words CSV Data from the HDFS into Hive Table  
+LOAD DATA INPATH 'hdfs://cluster-b2a2-m/assignment1/spam_words.csv' INTO TABLE spam_words_dataset;
+
+### Load Cleaned Comments Dataset from the HDFS into Hive Table 
+LOAD DATA INPATH 'hdfs://cluster-b2a2-m/assignment1/clean_yt_dataset' into table yt_pigdata;
+
+### Find Spam Comments
+CREATE TABLE spam_yt_comments AS SELECT * FROM cleaned_yt_data AS cyd WHERE EXISTS (SELECT * FROM spam_words_dataset WHERE cyd.comment_text LIKE CONCAT('%',spam_words,'%'));
+
+### Find Ham Comments
+CREATE TABLE ham_yt_comments AS SELECT * FROM cleaned_yt_data AS cyd WHERE NOT EXISTS (SELECT * FROM spam_words_dataset WHERE cyd.comment_text LIKE CONCAT('%',spam_words,'%'));
+
+### DROP tables if necessary
+DROP TABLE IF EXISTS ham_yt_comments;
+
+### Find Top 10 Spam Accounts
+select video_id, count(*) from spam_yt_comments group by video_id order by count(video_id) desc limit 10;
+
+### Find Top 10 Ham Accounts
+select video_id, count(*) from ham_yt_comments group by video_id order by count(video_id) desc limit 10;
